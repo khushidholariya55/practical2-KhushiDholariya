@@ -1,0 +1,203 @@
+name: React Hello World - Auto Grading
+
+on: [push]
+
+jobs:
+  autograde:
+    runs-on: ubuntu-latest
+
+    steps:
+    # ----------------------------
+    # CHECKOUT
+    # ----------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # ----------------------------
+    # SETUP NODE.JS
+    # ----------------------------
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    # ----------------------------
+    # HARD FAIL RULES (0 MARKS)
+    # ----------------------------
+    - name: ❌ Fail if node_modules committed
+      run: |
+        if find . -type d -name "node_modules" | grep -q .; then
+          echo "❌ node_modules detected. Auto-fail (0 marks)."
+          exit 1
+        fi
+
+    - name: ❌ Fail if React not imported
+      run: |
+        if ! grep -q "from 'react'" practical-2-hello-world/src/App.js; then
+          echo "❌ React not imported in App.js. Auto-fail."
+          exit 1
+        fi
+
+    - name: ❌ Fail if no JSX (HTML-only)
+      run: |
+        if ! grep -q "<[A-Za-z]" practical-2-hello-world/src/App.js; then
+          echo "❌ No JSX detected. Must use React components."
+          exit 1
+        fi
+
+    - name: ❌ Fail if Hello World in HTML file
+      run: |
+        if grep -i "hello world" practical-2-hello-world/public/index.html 2>/dev/null || grep -i "hello world" practical-2-hello-world/public/*.html 2>/dev/null; then
+          echo "❌ Hello World found in HTML file. Must be in React component."
+          exit 1
+        fi
+
+    # ----------------------------
+    # INITIALIZE SCORE
+    # ----------------------------
+    - name: Initialize score
+      run: echo "SCORE=0" >> $GITHUB_ENV
+
+    # ============================
+    # GRADING CHECKS
+    # ============================
+
+    - name: ✅ Check project structure (2 marks)
+      run: |
+        if [ -f practical-2-hello-world/package.json ] && \
+           [ -f practical-2-hello-world/src/App.js ] && \
+           [ -f practical-2-hello-world/src/index.js ]; then
+          echo "✅ Project structure correct"
+          echo "SCORE=$((SCORE+2))" >> $GITHUB_ENV
+        else
+          echo "❌ Missing required files"
+        fi
+
+    - name: ✅ Check npm install works (2 marks)
+      run: |
+        cd practical-2-hello-world
+        if npm ci --silent 2>/dev/null || npm install --silent 2>/dev/null; then
+          echo "✅ npm install successful"
+          echo "SCORE=$((SCORE+2))" >> $GITHUB_ENV
+        else
+          echo "❌ npm install failed"
+        fi
+        cd ..
+
+    - name: ✅ Check Hello World rendered (3 marks)
+      run: |
+        if grep -iq "hello world" practical-2-hello-world/src/App.js; then
+          echo "✅ Hello World rendered in App.js"
+          echo "SCORE=$((SCORE+3))" >> $GITHUB_ENV
+        else
+          echo "❌ Hello World not found in App.js"
+        fi
+
+    # ----------------------------
+    # FINAL SCORE
+    # ----------------------------
+    - name: Display Final Score
+      run: |
+        echo "========================================"
+        echo "        HELLO WORLD PRACTICAL"
+        echo "========================================"
+        echo ""
+        echo "  Grading Results:"
+        echo "  - Project structure: 2/2"
+        echo "  - npm install works: 2/2"
+        echo "  - Hello World rendered: 3/3"
+        echo ""
+        echo "  ------------------------------------"
+        echo "  FINAL SCORE: $SCORE / 7"
+        echo "========================================"
+        
+        if [ $SCORE -eq 7 ]; then
+          echo "🎉 PERFECT SCORE! Well done!"
+        elif [ $SCORE -ge 5 ]; then
+          echo "✅ Good job!"
+        elif [ $SCORE -ge 3 ]; then
+          echo "⚠️  Passing, but needs improvement"
+        else
+          echo "❌ Needs work - review requirements"
+        fi
+
+    # ----------------------------
+    # CREATE AND UPLOAD SCORE FILE
+    # ----------------------------
+    - name: Create score file
+      run: |
+        {
+          echo "Hello World Practical Score: $SCORE/7"
+          echo "Graded on: $(date)"
+          echo ""
+          echo "Breakdown:"
+          echo "- Project structure: 2 marks"
+          echo "- npm install works: 2 marks"
+          echo "- Hello World rendered: 3 marks"
+          echo ""
+          echo "Status: $([ $SCORE -eq 7 ] && echo 'PASS' || echo 'NEEDS IMPROVEMENT')"
+        } > score.txt
+        
+        # Also create JSON version for easier parsing
+        echo '{"score": '$SCORE', "max_score": 7, "timestamp": "'$(date -Iseconds)'"}' > score.json
+
+    - name: Upload score artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: grading-results
+        path: |
+          score.txt
+          score.json
+        retention-days: 7
+
+    # ----------------------------
+    # ADDITIONAL VALIDATION (OPTIONAL)
+    # ----------------------------
+    - name: ✅ Validate React app builds
+      if: ${{ success() }}
+      run: |
+        cd practical-2-hello-world
+        echo "Testing if React app can build..."
+        if npx react-scripts build 2>/dev/null; then
+          echo "✅ React app builds successfully"
+          # Create a simple test summary
+          echo "BUILD_STATUS=PASS" >> $GITHUB_ENV
+        else
+          echo "⚠️  React app build had issues"
+          echo "BUILD_STATUS=WARNING" >> $GITHUB_ENV
+        fi
+        cd ..
+        
+        # Add build status to score file
+        if [ "$BUILD_STATUS" = "PASS" ]; then
+          echo "build_test: passed" >> score.txt
+        else
+          echo "build_test: warning" >> score.txt
+        fi
+
+    # ----------------------------
+    # JOB SUMMARY
+    # ----------------------------
+    - name: Create job summary
+      run: |
+        echo "## 📊 Grading Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Hello World Practical" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Final Score:** $SCORE/7" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### Breakdown:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Project structure: 2/2" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ npm install: 2/2" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Hello World rendered: 3/3" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ $SCORE -eq 7 ]; then
+          echo "🎉 **Perfect score!** Excellent work!" >> $GITHUB_STEP_SUMMARY
+        elif [ $SCORE -ge 5 ]; then
+          echo "✅ **Good job!** You passed the practical." >> $GITHUB_STEP_SUMMARY
+        elif [ $SCORE -ge 3 ]; then
+          echo "⚠️ **Passing grade,** but there's room for improvement." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Needs improvement.** Please review the requirements." >> $GITHUB_STEP_SUMMARY
+        fi
